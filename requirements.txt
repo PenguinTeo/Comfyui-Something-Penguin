@@ -1,0 +1,2 @@
+# Dependencies required for full image processing functionality
+Pillow>=10.0

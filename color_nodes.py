@@ -1,9 +1,12 @@
-"""Placeholder implementation of color adjustment nodes for ComfyUI.
+"""Simple color adjustment nodes for ComfyUI.
 
-These classes outline a potential design for brightness/contrast, levels,
-hue/saturation, color balance, and perspective transform adjustments.
-Actual image manipulation requires third-party libraries such as Pillow
-or OpenCV, which are not available in this environment.
+The environment used for this repository does not provide external image
+processing libraries such as Pillow or OpenCV.  The nodes implemented here
+therefore operate on images represented as lists of rows where each row is a
+list of ``(R, G, B)`` tuples with channels in the range ``0``-``255``.  The
+implementations are intentionally lightweight so that they work with nothing
+but the Python standard library.  For real-world scenarios you would replace
+these routines with versions that leverage proper image libraries.
 """
 
 from typing import Any
@@ -16,64 +19,104 @@ class BrightnessContrastNode:
         self.brightness = brightness
         self.contrast = contrast
 
-    def process(self, image: Any) -> Any:
-        """Process the given image.
+    def _adjust_channel(self, value: float) -> int:
+        value = (value + self.brightness) * self.contrast
+        return max(0, min(255, int(value)))
 
-        This placeholder implementation merely returns the input image.
-        In a full implementation, the brightness and contrast adjustments
-        would be applied using an image processing library.
-        """
-        # TODO: apply brightness/contrast using Pillow or numpy
-        return image
+    def process(self, image: Any) -> Any:
+        """Apply brightness/contrast to an ``image`` represented as nested lists."""
+
+        return [
+            [
+                tuple(self._adjust_channel(c) for c in pixel)
+                for pixel in row
+            ]
+            for row in image
+        ]
 
 
 class LevelsNode:
-    """Perform levels adjustment."""
+    """Perform a simple levels adjustment."""
 
-    def __init__(self, black_point: float = 0.0, white_point: float = 1.0) -> None:
+    def __init__(self, black_point: float = 0.0, white_point: float = 255.0) -> None:
         self.black_point = black_point
-        self.white_point = white_point
+        self.white_point = white_point if white_point != black_point else black_point + 1
+
+    def _adjust_channel(self, value: float) -> int:
+        scaled = (value - self.black_point) * 255 / (self.white_point - self.black_point)
+        return max(0, min(255, int(scaled)))
 
     def process(self, image: Any) -> Any:
-        """Adjust the image levels.
+        """Scale channel values between ``black_point`` and ``white_point``."""
 
-        Currently returns the original image without modification.
-        """
-        # TODO: implement levels adjustment
-        return image
+        return [
+            [
+                tuple(self._adjust_channel(c) for c in pixel)
+                for pixel in row
+            ]
+            for row in image
+        ]
 
 
 class HueSaturationNode:
-    """Modify hue and saturation."""
+    """Modify hue and saturation using the :mod:`colorsys` helpers."""
 
     def __init__(self, hue: float = 0.0, saturation: float = 1.0) -> None:
         self.hue = hue
         self.saturation = saturation
 
-    def process(self, image: Any) -> Any:
-        """Adjust hue and saturation.
+    def _adjust_pixel(self, pixel: Any) -> Any:
+        import colorsys
 
-        At the moment this returns the original image.
-        """
-        # TODO: implement hue/saturation adjustment
-        return image
+        r, g, b = [c / 255 for c in pixel]
+        h, s, v = colorsys.rgb_to_hsv(r, g, b)
+        h = (h + self.hue) % 1.0
+        s = max(0.0, min(1.0, s * self.saturation))
+        r2, g2, b2 = colorsys.hsv_to_rgb(h, s, v)
+        return (int(r2 * 255), int(g2 * 255), int(b2 * 255))
+
+    def process(self, image: Any) -> Any:
+        """Apply hue and saturation adjustments to ``image``."""
+
+        return [
+            [self._adjust_pixel(pixel) for pixel in row]
+            for row in image
+        ]
 
 
 class ColorBalanceNode:
-    """Change the color balance."""
+    """Shift the colour balance of shadows, midtones and highlights."""
 
-    def __init__(self, shadows: float = 0.0, midtones: float = 0.0, highlights: float = 0.0) -> None:
+    def __init__(self,
+                 shadows: tuple[int, int, int] = (0, 0, 0),
+                 midtones: tuple[int, int, int] = (0, 0, 0),
+                 highlights: tuple[int, int, int] = (0, 0, 0)) -> None:
         self.shadows = shadows
         self.midtones = midtones
         self.highlights = highlights
 
-    def process(self, image: Any) -> Any:
-        """Adjust color balance.
+    def _apply_shift(self, pixel: tuple[int, int, int], shift: tuple[int, int, int]) -> tuple[int, int, int]:
+        return tuple(
+            max(0, min(255, c + s))
+            for c, s in zip(pixel, shift)
+        )
 
-        Placeholder that returns the input image.
-        """
-        # TODO: implement color balance adjustments
-        return image
+    def process(self, image: Any) -> Any:
+        """Apply simple tonal colour shifts."""
+
+        result = []
+        for row in image:
+            new_row = []
+            for pixel in row:
+                luminance = sum(pixel) / 3
+                if luminance < 85:
+                    new_row.append(self._apply_shift(pixel, self.shadows))
+                elif luminance < 170:
+                    new_row.append(self._apply_shift(pixel, self.midtones))
+                else:
+                    new_row.append(self._apply_shift(pixel, self.highlights))
+            result.append(new_row)
+        return result
 
 
 class PerspectiveTransformNode:
@@ -85,7 +128,8 @@ class PerspectiveTransformNode:
     def process(self, image: Any) -> Any:
         """Apply the perspective transform.
 
-        Without external libraries this node simply returns the input image.
+        This placeholder performs no transformation because a real
+        perspective warp would require interpolation routines that
+        depend on external libraries.
         """
-        # TODO: apply perspective transformation
         return image
